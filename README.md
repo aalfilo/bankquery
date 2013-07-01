@@ -1,4 +1,0 @@
-bankquery
-=========
-
-bankQuery

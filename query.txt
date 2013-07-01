@@ -1,0 +1,148 @@
+D:\xampp\mysql\bin>mysql.exe -u root
+Welcome to the MySQL monitor. Commands end with ; or \g.
+Your MySQL connection id is 7
+Server version: 5.5.16 MySQL Community Server (GPL)
+ 
+Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ 
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+ 
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+ 
+mysql> -- Problem:
+mysql> -- Menghitung running total saldo transaksi bank
+mysql> -- Dengan partisi berdasarkan id (customer.id)
+mysql> ---------------------------------------------------
+ 
+mysql> USE test;
+Database changed
+ 
+mysql> DROP TABLE bank;
+Query OK, 0 rows affected (0.09 sec)
+ 
+mysql> -- Buat sample data
+mysql> ---------------------------------------------------
+mysql> CREATE TABLE bank AS
+-> SELECT 'MD001' id, 1000 debet, 0 kredit UNION ALL
+-> SELECT 'MD001' id, 2000 debet, 0 kredit UNION ALL
+-> SELECT 'MD001' id, 0 debet, 500 kredit UNION ALL
+-> SELECT 'MD002' id, 1500 debet, 0 kredit UNION ALL
+-> SELECT 'MD002' id, 0 debet, 500 kredit UNION ALL
+-> SELECT 'MD002' id, 1000 debet, 0 kredit
+-> ;
+Query OK, 6 rows affected (0.21 sec)
+Records: 6 Duplicates: 0 Warnings: 0
+ 
+mysql> -- tampilin isi sample data, biar yakin :)
+mysql> ---------------------------------------------------
+mysql> SELECT * FROM bank;
++-------+-------+--------+
+| id | debet | kredit |
++-------+-------+--------+
+| MD001 | 1000 | 0 |
+| MD001 | 2000 | 0 |
+| MD001 | 0 | 500 |
+| MD002 | 1500 | 0 |
+| MD002 | 0 | 500 |
+| MD002 | 1000 | 0 |
++-------+-------+--------+
+6 rows in set (0.00 sec)
+ 
+mysql> --- Beri nomor baris untuk view pertama
+mysql> ---------------------------------------
+mysql> SELECT id, debet, kredit, @baris1:=@baris1+1 baris
+-> FROM bank, (SELECT @baris1 := 0) tx
+-> ORDER BY id
+-> ;
++-------+-------+--------+-------+
+| id | debet | kredit | baris |
++-------+-------+--------+-------+
+| MD001 | 1000 | 0 | 1 |
+| MD001 | 2000 | 0 | 2 |
+| MD001 | 0 | 500 | 3 |
+| MD002 | 1500 | 0 | 4 |
+| MD002 | 0 | 500 | 5 |
+| MD002 | 1000 | 0 | 6 |
++-------+-------+--------+-------+
+6 rows in set (0.00 sec)
+ 
+mysql> --- Beri nomor baris untuk view kedua
+mysql> -------------------------------------
+mysql> SELECT id, @baris2:=@baris2+1 baris
+-> FROM bank, (SELECT @baris2 := 1) tx
+-> ORDER BY id
+-> ;
++-------+-------+
+| id | baris |
++-------+-------+
+| MD001 | 2 |
+| MD001 | 3 |
+| MD001 | 4 |
+| MD002 | 5 |
+| MD002 | 6 |
+| MD002 | 7 |
++-------+-------+
+6 rows in set (0.00 sec)
+ 
+mysql> -- Join hasil kedua view di atas berdasarkan nomor barisnya
+mysql> -- Note: tidak ada aturan baku bahwa join harus antara PK-FK
+mysql> ----------------------------------------------------------------
+mysql> SELECT t1.id, t1.debet, t1.kredit, t2.id t2_id
+-> FROM (
+-> SELECT id, debet, kredit, @baris1:=@baris1+1 baris
+-> FROM bank, (SELECT @baris1 := 0) tx
+-> ORDER BY id
+-> ) t1
+-> LEFT JOIN (
+-> SELECT id, @baris2:=@baris2+1 baris
+-> FROM bank, (SELECT @baris2 := 1) tx
+-> ORDER BY id
+-> ) t2 ON t1.baris=t2.baris
+-> ;
++-------+-------+--------+-------+
+| id | debet | kredit | t2_id |
++-------+-------+--------+-------+
+| MD001 | 1000 | 0 | NULL |
+| MD001 | 2000 | 0 | MD001 |
+| MD001 | 0 | 500 | MD001 |
+| MD002 | 1500 | 0 | MD001 |
+| MD002 | 0 | 500 | MD002 |
+| MD002 | 1000 | 0 | MD002 |
++-------+-------+--------+-------+
+6 rows in set (0.00 sec)
+ 
+mysql> -- Hitung saldonya
+mysql> -- Periksa jika t1.id<>t2.id, maka saldo di set ulang
+mysql> -----------------------------------------------------
+mysql> SELECT t1.id, t1.debet, t1.kredit
+-> , CASE WHEN t1.id<>t2.id THEN @saldo:=debet-kredit
+-> ELSE @saldo:=@saldo+debet-kredit END saldo
+-> FROM (
+-> SELECT id, debet, kredit, @baris1:=@baris1+1 baris
+-> FROM bank, (SELECT @baris1 := 0) tx
+-> ORDER BY id
+-> ) t1
+-> LEFT JOIN (
+-> SELECT id, @baris2:=@baris2+1 baris
+-> FROM bank, (SELECT @baris2 := 1) tx
+-> ORDER BY id
+-> ) t2 ON t1.baris=t2.baris
+-> JOIN (
+-> SELECT @saldo:=0
+-> ) t3
+-> ;
++-------+-------+--------+-------+
+| id | debet | kredit | saldo |
++-------+-------+--------+-------+
+| MD001 | 1000 | 0 | 1000 |
+| MD001 | 2000 | 0 | 3000 |
+| MD001 | 0 | 500 | 2500 |
+| MD002 | 1500 | 0 | 1500 |
+| MD002 | 0 | 500 | 1000 |
+| MD002 | 1000 | 0 | 2000 |
++-------+-------+--------+-------+
+6 rows in set (0.00 sec)
+ 
+mysql>
